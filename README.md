@@ -28,7 +28,7 @@ While this is just a way for us to put our step in the game, we have several ide
 ## Built With:
 figma, opencv, python, gemini
 
-<img src="https://github.com/chaa-san/Snooze-Cruise/blob/main/images/Home.png" width="350" height=auto>
+<img src="https://github.com/Arushi-Dudeja/MathVideoToLatex/tree/main/images/mainpage-1.png" width="350" height=auto>
 
 
 ## To run the python Code:
