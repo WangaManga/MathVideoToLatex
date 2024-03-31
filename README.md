@@ -28,7 +28,7 @@ While this is just a way for us to put our step in the game, we have several ide
 ## Built With:
 figma, opencv, python, gemini
 
-<img src="images/mainpage-1.png" width="350" height=auto>
+<img src="images/Logo.png" width="350" height=auto>
 
 
 ## To run the python Code:
