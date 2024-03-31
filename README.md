@@ -34,7 +34,6 @@ figma, opencv, python, gemini
 
 
 ## To run the python Code:
-Install  & import the following python libraries: opencv-python, dlib, imutils, scipy
+Install  & import the following python libraries: google-generativeai, pytube, ffmpeg, youtube-transcript-api, opencv-python, numpy, matplotlib, pillow
 
-And execute the command from python code folder path:
-python DrowsinessDetection.py
+Execute the command from python interactive notebook
