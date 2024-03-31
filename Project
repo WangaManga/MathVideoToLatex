@@ -1,0 +1,203 @@
+!pip install -q -U google-generativeai
+!pip install pytube
+!apt-get install -y ffmpeg
+!pip install youtube-transcript-api
+# Import necessary libraries
+import os
+import cv2
+import pathlib
+import numpy as np
+import matplotlib.pyplot as plt
+from pytube import YouTube
+from glob import glob
+import IPython.display as ipd
+from tqdm import tqdm
+from skimage.metrics import structural_similarity as ssim
+import PIL.Image
+import google.generativeai as genai
+from google.colab import userdata
+from IPython.display import display, Markdown, Video
+import textwrap
+import subprocess
+from youtube_transcript_api import YouTubeTranscriptApi
+
+# Setup Google Gemini API
+GOOGLE_API_KEY = userdata.get("GEMINI_API_KEY")
+genai.configure(api_key=GOOGLE_API_KEY)
+
+def to_markdown(text):
+    text = text.replace('•', '  *')
+    return Markdown(textwrap.indent(text, '> ', predicate=lambda _: True))
+
+# Function to download and preprocess video
+def download_and_preprocess_video(url):
+    # Download video at 360p resolution to reduce processing time
+    video_path = YouTube(url).streams.filter(res="360p").first().download()
+    print(f"Video downloaded to {video_path}")
+    return video_path
+
+# Function to extract key frames from the video
+def extract_key_frames(video_path, output_directory='selected_frames', threshold=0.7):
+    # Create a directory to save the selected frames
+    os.makedirs(output_directory, exist_ok=True)
+
+    # Open the video file
+    cap = cv2.VideoCapture(video_path)
+    fps = 10*int(cap.get(cv2.CAP_PROP_FPS))
+    print("FPS:", fps, sep="---")
+    n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    selected_frames = []
+    previous_frame = None
+
+    for frame_idx in tqdm(range(n_frames), desc="Processing Frames"):
+        ret, img = cap.read()
+        if not ret:
+            break
+
+        # Process every (fps/4)th frame
+        if frame_idx % fps != 0:
+            continue
+
+        if previous_frame is not None:
+            # Structural Similarity Index (SSI) for RGB channels
+            b, g, r = cv2.split(img)
+            ssim_b, _ = ssim(previous_frame[0], b, full=True)
+            ssim_g, _ = ssim(previous_frame[1], g, full=True)
+            ssim_r, _ = ssim(previous_frame[2], r, full=True)
+
+            similarity_index = (ssim_b + ssim_g + ssim_r) / 3
+
+            if similarity_index < threshold:
+                selected_frames.append(img)
+                frame_filename = os.path.join(output_directory, f"frame_{frame_idx:04d}.png")
+                cv2.imwrite(frame_filename, img)
+
+        previous_frame = cv2.split(img)
+
+    # Release resources
+    cap.release()
+    print(f"Total key frames extracted: {len(selected_frames)}")
+
+def clear_frames(image_directory='selected_frames'):
+
+  if os.path.exists("/content/output.txt") == True:
+    out_path = "/content/output.txt"
+    os.remove(out_path)
+
+  if os.path.exists("/content/transcript.txt") == True:
+    trans_path = "/content/transcript.txt"
+    os.remove(trans_path)
+
+  if os.path.exists("/content/latex.txt") == True:
+    latex_path = "/content/latex.txt"
+    os.remove(latex_path)
+  # Specify the folder path
+  folder_path = "/content/selected_frames"
+
+  # List all files in the folder
+  #files = os.listdir(folder_path)
+
+  # Delete each file
+  #for file in files:
+  #    file_path = os.path.join(folder_path, file)
+  #    os.remove(file_path)
+  #print("Cleared")
+  #return
+
+# Convert the selected frames to PIL format for model processing
+def convert_frames_to_pil(image_directory='selected_frames'):
+    images = []
+    for filename in sorted(glob(os.path.join(image_directory, '*.png'))):
+        img = PIL.Image.open(filename)
+        images.append(img)
+    return images
+
+# Process and display response for each image with Gemini
+def process_image_with_gemini(image, model, instructions, prompt1, prompt2):
+    content = [instructions, prompt1, prompt2, image]
+    response = model.generate_content(content)
+    return response
+
+def transcript(video_id):
+    file = open('transcript.txt', 'a')
+    transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+    # Combining the text of all transcript segments into a single string
+    for item in transcript_list:
+      file.write(item['text'])
+      file.write(" ")
+    #transcript_text = ' '.join([item['text'] for item in transcript_list])
+
+    return
+
+# Main function to run the workflow
+def main(video_url, language, personality):
+    clear_frames()
+    video_path = download_and_preprocess_video(video_url)
+
+    video_id = video_url.split('=')[-1]
+    transcript(video_id)
+
+    extract_key_frames(video_path)
+    images = convert_frames_to_pil()
+
+    # Select Gemini Pro Vision model
+    model = genai.GenerativeModel('gemini-pro-vision')
+
+    # Instructions and prompts
+    instructions = "Instructions: Consider the following image and answer the questions in " + language + " with a " + personality + " personality:"
+    #prompt1 = "What is shown in each of the images?"
+    #prompt2 = "Describe what is happening in the images, if there are numbers or math related symbols, please use LATEX to format them."
+    prompt1 = "For each image, describe in detail: Any visible text, equations, or symbols, using LaTeX formatting where applicable. The context or subject matter being discussed or illustrated. Any diagrams, charts, or visual aids, including their significance and how they relate to the lecture content."
+    prompt2 = "Additionally, offer interpretations that could link these images to lecture topics, making assumptions based on visible content. Suggest headings or captions for each image that could be used in the LaTeX document to organize the lecture notes effectively."
+
+    file = open('output.txt', 'a')
+    i=0
+    # Process each image with the Gemini model
+    for image in images:
+        response = process_image_with_gemini(image, model, instructions, prompt1, prompt2)
+        file.write("\n-------Response: ")
+        file.write(str(i))
+        file.write("--------\n")
+        #print("\n-------Response: ", i, "--------", "")
+        i = i+1
+        for text in response:
+          file.write(text.text)
+          #  print(text.text, end="")
+    file.close()
+
+
+
+
+if __name__ == "__main__":
+    # Example YouTube video URL
+    video_url = input("Video URL: ") #"https://www.youtube.com/watch?v=irv5CbKdHOc"
+    language = input("Language: ")
+    personality = "lawful and professional"
+
+    main(video_url, language, personality)
+
+modelito = genai.GenerativeModel('gemini-pro')
+
+visualization = 'output.txt'
+
+with open(visualization, 'r') as file:
+  visualization_s = file.read()
+file.close()
+
+transcriptt = 'transcript.txt'
+
+with open(transcriptt, 'r') as file:
+  transcript_s = file.read()
+file.close()
+
+
+file = open('latex.tex', 'w')
+response = modelito.generate_content("The following is the transcription of an educational video:"  + transcript_s + "and the following is the visualization of the video in text:" + visualization_s + "Based on that, please output a latex file that contains the mash up of the two in a way where it looks like lecture notes, or like all the content viewed in the video, also please do not enumerate the images, please be very careful with latex formatting, write the lecture notes in" + language + ", for example the very first line would be \documentclass[12pt]{article}")
+
+for text in response:
+   file.write(text.text)
+
+file.close()
+
+
+#to_markdown(response.text)
